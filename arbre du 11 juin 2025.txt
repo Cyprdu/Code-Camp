@@ -1,0 +1,68 @@
+Voici l'arborescence de vos fichiers, organisée à partir du dossier racine `camps/`.
+
+```
+camps/
+├── api/
+│   ├── add_camp.php
+│   ├── add_child.php
+│   ├── config.php
+│   ├── create_organisateur.php
+│   ├── delete_camp.php
+│   ├── get_accepted_directors.php
+│   ├── get_camp_details.php
+│   ├── get_camp_request_count.php
+│   ├── get_camp_requests.php
+│   ├── get_camps.php
+│   ├── get_children.php
+│   ├── get_conversations.php
+│   ├── get_director_requests.php
+│   ├── get_favorites.php
+│   ├── get_inscription_details.php
+│   ├── get_messages.php
+│   ├── get_my_camps.php
+│   ├── get_my_reservations.php
+│   ├── get_organisateurs.php
+│   ├── get_refused_camps.php
+│   ├── get_refused_requests.php
+│   ├── get_request_count.php
+│   ├── get_unread_messages_count.php
+│   ├── logout.php
+│   ├── process_camp_request.php
+│   ├── process_inscription.php
+│   ├── process_request.php
+│   ├── request_director_access.php
+│   ├── requeue_camp.php
+│   ├── send_message.php
+│   ├── start_conversation.php
+│   ├── toggle_favorite.php
+│   ├── update_camp.php
+│   ├── user_login.php
+│   └── user_register.php
+├── partials/
+│   └── header.php
+├── add_child.php
+├── admin.php
+├── admin_add_camp.php
+├── admin_camp_requests.php
+├── admin_history_accepted.php
+├── admin_history_refused.php
+├── admin_requests.php
+├── aide.php
+├── camp_details.php
+├── children.php
+├── create_camp.php
+├── create_organisateur.php
+├── edit_camp.php
+├── favorites.php
+├── index.php
+├── info_inscrit.php
+├── inscription.php
+├── login.php
+├── mes_camps.php
+├── messagerie.php
+├── organisateurs.php
+├── profile.php
+├── public_infos.php
+├── register.php
+└── reservations.php
+```
