@@ -164,7 +164,7 @@ require_once 'partials/header.php';
 
                         </div>
                         
-                        <a href="camp_participants.php?id=<?= $camp['id'] ?>" class="mt-3 block w-full text-center py-2 rounded-lg bg-gray-100 text-gray-700 text-sm font-bold hover:bg-gray-200 transition">
+                        <a href="gestion_camp.php?t=<?= $camp['token'] ?>" class="mt-3 block w-full text-center py-2 rounded-lg bg-gray-100 text-gray-700 text-sm font-bold hover:bg-gray-200 transition">
                             Gérer les inscrits
                         </a>
 

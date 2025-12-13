@@ -72,3 +72,4 @@ document.getElementById('login-form').addEventListener('submit', async function(
 
 </body>
 </html>
+            // --- CORRECTION IMPORTANTE ---
