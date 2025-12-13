@@ -2,7 +2,7 @@
 // 1. D'ABORD LA CONFIG (Session start est dedans)
 require_once 'api/config.php';
 
-// 2. SÉCURITÉ AVANT TOUT HTML (Pour éviter l'erreur "Headers already sent")
+// 2. SÉCURITÉ AVANT TOUT HTML
 // On utilise !empty() pour éviter l'erreur "Undefined array key" si la clé n'existe pas
 if (!isset($_SESSION['user']) || empty($_SESSION['user']['is_directeur'])) {
     header('Location: index.php');
@@ -15,27 +15,32 @@ $camps = []; // Initialisation par défaut
 $error = null;
 
 try {
-    // A. Récupérer l'ID de l'organisateur lié au User
+    // A. Récupérer TOUS les IDs de l'organisateur liés au User (CORRIGÉ : fetchAll au lieu de fetch)
     $stmtOrga = $pdo->prepare("SELECT id FROM organisateurs WHERE user_id = ?");
     $stmtOrga->execute([$userId]);
-    $orga = $stmtOrga->fetch();
+    $organisateurIds = $stmtOrga->fetchAll(PDO::FETCH_COLUMN); // Récupère un tableau de tous les IDs
 
-    if ($orga) {
-        // B. Récupérer les camps si l'organisateur existe
+    if (!empty($organisateurIds)) {
+        // B. Créer des placeholders pour la clause IN
+        $placeholders = implode(',', array_fill(0, count($organisateurIds), '?'));
+        
+        // C. Récupérer les camps liés à TOUS ces IDs d'organisateurs
         $sql = "
             SELECT 
                 c.*,
                 (SELECT COUNT(*) FROM inscriptions WHERE camp_id = c.id) as nb_inscrits
             FROM camps c
-            WHERE c.organisateur_id = ?
+            WHERE c.organisateur_id IN ($placeholders) -- Utilisation de la clause IN
             ORDER BY c.date_debut DESC
         ";
         
         $stmt = $pdo->prepare($sql);
-        $stmt->execute([$orga['id']]);
+        // Exécuter la requête en passant le tableau des IDs d'organisateur
+        $stmt->execute($organisateurIds); 
         $camps = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
     } else {
-        $error = "Profil organisateur introuvable.";
+        $error = "Aucun profil organisateur lié à votre compte.";
     }
 
 } catch (Exception $e) {

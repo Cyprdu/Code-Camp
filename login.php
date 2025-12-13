@@ -55,7 +55,6 @@ document.getElementById('login-form').addEventListener('submit', async function(
             messageArea.innerHTML = `<p class="text-green-500 font-bold">Connexion réussie ! Redirection...</p>`;
             window.location.href = 'index.php';
         } else {
-            // --- CORRECTION IMPORTANTE ---
             // Ce bloc affiche maintenant le message de débogage s'il existe.
             let errorMessage = result.error;
             if (result.debug) {
@@ -72,4 +71,3 @@ document.getElementById('login-form').addEventListener('submit', async function(
 
 </body>
 </html>
-            // --- CORRECTION IMPORTANTE ---
