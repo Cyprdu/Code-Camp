@@ -1,72 +1,53 @@
 <?php
 // Fichier: /api/get_camps.php
-// Version finale qui n'affiche que les camps validés et futurs.
-
-header('Content-Type: application/json');
 require_once 'config.php';
 
 try {
-    $formulaParts = [];
-    
-    // CONDITION DE BASE : Le camp doit être validé ET sa date de début doit être future.
-    $today = date('Y-m-d');
-    $formulaParts[] = "IS_AFTER({Date début du camp}, '{$today}')";
-    $formulaParts[] = "{Validé} = 1";
+    // MODIFICATION 1 : On ajoute "AND prive = 0" pour cacher les camps privés des listes publiques
+    $sql = "SELECT * FROM camps WHERE valide = 1 AND prive = 0 AND date_debut > CURDATE()";
+    $params = [];
 
     // Filtre par nom
     if (!empty($_GET['name'])) {
-        $formulaParts[] = "SEARCH(LOWER('" . addslashes($_GET['name']) . "'), LOWER({nom}))";
+        $sql .= " AND nom LIKE :name";
+        $params['name'] = '%' . $_GET['name'] . '%';
     }
 
     // Filtre par département
     if (!empty($_GET['department'])) {
-        $departmentCode = addslashes($_GET['department']);
-        $formulaParts[] = "LEFT(TRIM({Code Postale} & ''), 2) = '{$departmentCode}'";
+        $sql .= " AND code_postal LIKE :dept";
+        $params['dept'] = $_GET['department'] . '%';
     }
 
     // Filtre par âge
     if (!empty($_GET['age'])) {
-        $age = intval($_GET['age']);
-        $formulaParts[] = "AND({Age min} <= {$age}, {Age max} >= {$age})";
+        $age = (int)$_GET['age'];
+        $sql .= " AND age_min <= :age AND age_max >= :age";
+        $params['age'] = $age;
     }
-    
-    // Construit la formule finale avec des AND
-    $formula = 'AND(' . implode(', ', $formulaParts) . ')';
-    $url = AIRTABLE_API_URL . AIRTABLE_BASE_ID . '/Camps?filterByFormula=' . urlencode($formula);
 
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . AIRTABLE_API_KEY]);
-    $response = curl_exec($ch);
-    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $camps = $stmt->fetchAll();
 
-    if ($http_code >= 300) {
-        $errorDetails = json_decode($response, true);
-        throw new Exception($errorDetails['error']['message'] ?? 'Erreur API.');
-    }
-    
-    $result = json_decode($response, true);
-    $final_records = $result['records'] ?? [];
-
-    $camps_response = [];
-    foreach ($final_records as $record) {
-        $camps_response[] = [
-            'id' => $record['id'],
-            'nom' => $record['fields']['nom'] ?? 'N/A',
-            'ville' => $record['fields']['Ville ou se déroule le camp'] ?? 'N/A',
-            'prix' => $record['fields']['Prix conseillé'] ?? 0,
-            'age_min' => $record['fields']['Age min'] ?? 0,
-            'age_max' => $record['fields']['Age max'] ?? 0,
-            'date_debut' => $record['fields']['Date début du camp'] ?? '',
-            'image_url' => $record['fields']['illustration'][0]['url'] ?? 'https://placehold.co/600x400'
+    $formattedCamps = array_map(function($camp) {
+        return [
+            'id' => $camp['id'],
+            // MODIFICATION 2 : On envoie le token au JavaScript pour construire le lien
+            'token' => $camp['token'], 
+            'nom' => $camp['nom'],
+            'ville' => $camp['ville'],
+            'prix' => $camp['prix'],
+            'age_min' => $camp['age_min'],
+            'age_max' => $camp['age_max'],
+            'date_debut' => $camp['date_debut'],
+            'image_url' => $camp['image_url'] ?? 'https://placehold.co/600x400'
         ];
-    }
-    
-    echo json_encode($camps_response);
+    }, $camps);
+
+    sendJson($formattedCamps);
 
 } catch (Exception $e) {
-    http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    sendJson(['error' => $e->getMessage()], 500);
 }
 ?>

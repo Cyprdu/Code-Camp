@@ -1,15 +1,49 @@
 <?php
+// On inclut la config EN PREMIER pour avoir accès à la base de données ($pdo)
+require_once 'api/config.php';
 require_once 'partials/header.php';
 
-// On récupère les informations de l'utilisateur pour les favoris et la connexion
+// Informations utilisateur
 $is_logged_in = isset($_SESSION['user']);
 $user_favorites = $_SESSION['user']['favorites'] ?? [];
-$camp_id = $_GET['id'] ?? '';
+
+// === LOGIQUE DE RÉCUPÉRATION (Token ou ID) ===
+$token = $_GET['t'] ?? null;
+$id_param = $_GET['id'] ?? null;
+$camp_id = null;
+
+try {
+    if ($token) {
+        // Cas 1 : Accès via le lien sécurisé (Prioritaire)
+        $stmt = $pdo->prepare("SELECT id FROM camps WHERE token = ?");
+        $stmt->execute([$token]);
+        $res = $stmt->fetch();
+        if ($res) {
+            $camp_id = $res['id'];
+        }
+    } elseif ($id_param) {
+        // Cas 2 : Accès via l'ID (Ancienne méthode ou Interne)
+        $stmt = $pdo->prepare("SELECT id, prive FROM camps WHERE id = ?");
+        $stmt->execute([$id_param]);
+        $res = $stmt->fetch();
+        
+        if ($res) {
+            // SÉCURITÉ : Si le camp est privé, on interdit l'accès par ID direct
+            if ($res['prive'] == 1 && (!isset($_SESSION['user']['is_admin']) || !$_SESSION['user']['is_admin'])) {
+                // Redirection immédiate si camp privé accédé par ID (sauf admin)
+                echo "<script>window.location.href='index.php';</script>";
+                exit;
+            }
+            $camp_id = $res['id'];
+        }
+    }
+} catch (Exception $e) {
+    // En cas d'erreur SQL, on ne fait rien, camp_id restera null
+}
 ?>
 
 <title>Détails du Camp - ColoMap</title>
 
-<!-- POPUP DE CONNEXION OBLIGATOIRE -->
 <div id="auth-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50 hidden">
     <div class="bg-white rounded-lg shadow-xl p-8 max-w-sm w-full text-center">
         <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-blue-100 mb-4">
@@ -24,6 +58,7 @@ $camp_id = $_GET['id'] ?? '';
 
 <main class="container mx-auto px-4 sm:px-6 lg:px-8 max-w-6xl py-8">
     <div id="loader" class="text-center py-20"><div class="loader inline-block"></div><p class="mt-4 text-gray-600">Chargement...</p></div>
+    
     <div id="camp-content" class="hidden">
         <div class="mb-6"><a href="index.php" class="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 font-medium"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5"><path fill-rule="evenodd" d="M17 10a.75.75 0 0 1-.75.75H5.612l4.158 3.96a.75.75 0 1 1-1.04 1.08l-5.5-5.25a.75.75 0 0 1 0-1.08l5.5-5.25a.75.75 0 1 1 1.04 1.08L5.612 9.25H16.25A.75.75 0 0 1 17 10Z" clip-rule="evenodd" /></svg>Retour</a></div>
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-12">
@@ -50,6 +85,7 @@ $camp_id = $_GET['id'] ?? '';
                 </div>
                 <div class="prose max-w-none"><h2 class="text-2xl font-bold mb-4">Description du camp</h2><div id="camp-description" class="text-gray-700"></div></div>
             </div>
+            
             <div class="lg:col-span-1">
                 <div class="sticky top-24 bg-white p-6 rounded-xl shadow-lg border">
                     <div id="places-container" class="hidden text-center font-bold p-3 rounded-lg mb-4"><span id="camp-places"></span></div>
@@ -67,10 +103,14 @@ $camp_id = $_GET['id'] ?? '';
         </div>
     </div>
 </main>
+
 <script>
 document.addEventListener('DOMContentLoaded', async function() {
     const isLoggedIn = <?php echo json_encode($is_logged_in); ?>;
     const loader = document.getElementById('loader');
+
+    // On utilise l'ID résolu par PHP (depuis le token ou l'id url)
+    const campId = <?php echo json_encode($camp_id); ?>;
 
     if (!isLoggedIn) {
         loader.style.display = 'none';
@@ -79,22 +119,21 @@ document.addEventListener('DOMContentLoaded', async function() {
         return;
     }
 
-    const campContent = document.getElementById('camp-content');
-    const params = new URLSearchParams(window.location.search);
-    const campId = params.get('id');
-    const favoriteButton = document.getElementById('favorite-button');
-    const shareButton = document.getElementById('share-button');
-
     if (!campId) {
-        loader.innerHTML = '<p class="text-red-500 font-bold">Aucun camp sélectionné.</p>';
+        loader.innerHTML = '<p class="text-red-500 font-bold text-xl">Aucun camp sélectionné ou lien invalide.</p>';
         return;
     }
+
+    const campContent = document.getElementById('camp-content');
+    const favoriteButton = document.getElementById('favorite-button');
+    const shareButton = document.getElementById('share-button');
 
     try {
         const response = await fetch(`api/get_camp_details.php?id=${campId}`);
         if (!response.ok) throw new Error('Camp introuvable.');
         const camp = await response.json();
 
+        // Fonctions utilitaires d'affichage
         const safeSetText = (id, text) => {
             const el = document.getElementById(id);
             if (el) el.textContent = text;
@@ -104,6 +143,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             if (el) el.innerHTML = html;
         };
 
+        // Remplissage des données
         document.title = `${camp.nom} - ColoMap`;
         if (document.getElementById('camp-image')) document.getElementById('camp-image').src = camp.image_url;
         safeSetText('camp-name', camp.nom);
@@ -113,6 +153,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         safeSetText('camp-likes', camp.likes);
         safeSetText('camp-price', `${camp.prix}€`);
         safeSetText('camp-age', `${camp.age_min} - ${camp.age_max} ans`);
+        
         const startDate = new Date(camp.date_debut).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
         const endDate = new Date(camp.date_fin).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
         safeSetText('camp-dates', `Du ${startDate} au ${endDate}`);
@@ -120,6 +161,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         const actionContainer = document.getElementById('action-buttons');
         const placesContainer = document.getElementById('places-container');
 
+        // Gestion Boutons Inscription
         if (camp.inscription_en_ligne) {
             placesContainer.classList.remove('hidden');
             if (camp.places_restantes > 0) {
@@ -130,21 +172,24 @@ document.addEventListener('DOMContentLoaded', async function() {
                     placesContainer.innerHTML = `<span>${camp.places_restantes} places restantes</span>`;
                     placesContainer.className = 'text-center font-bold p-3 rounded-lg mb-4 bg-blue-50 text-blue-800';
                 }
-                actionContainer.innerHTML += `<a href="inscription.php?id=${camp.id}" class="w-full block text-center bg-blue-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-700">S'inscrire en ligne</a>`;
+                
+                // MODIFICATION : Utilisation du TOKEN dans le lien
+                actionContainer.innerHTML += `<a href="inscription.php?t=${camp.token}" class="w-full block text-center bg-blue-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-700">S'inscrire en ligne</a>`;
             } else {
                 placesContainer.innerHTML = 'Camp complet';
                 placesContainer.className = 'text-center font-bold p-3 rounded-lg mb-4 bg-red-100 text-red-800';
             }
         } else if (camp.inscription_hors_ligne) {
-            if (camp.pdf_url) {
-                actionContainer.innerHTML += `<a href="${camp.pdf_url}" target="_blank" class="w-full block text-center bg-gray-800 text-white font-bold py-3 px-6 rounded-lg">Télécharger le dossier</a>`;
+            if (camp.lien_externe) {
+                actionContainer.innerHTML += `<a href="${camp.lien_externe}" target="_blank" class="w-full block text-center bg-blue-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-700">Lien d'inscription</a>`;
             }
             if (camp.adresse_retour) {
-                actionContainer.innerHTML += `<p class="text-xs text-gray-500 pt-2">* À retourner à l'adresse suivante :<br>${camp.adresse_retour}</p>`;
+                actionContainer.innerHTML += `<p class="text-xs text-gray-500 pt-2 text-center mt-2 border-t pt-2">* Dossier à retourner à :<br>${camp.adresse_retour}</p>`;
             }
         }
 
-        const contactBtnHtml = `<button id="contact-organizer-btn" data-organizer-id="${camp.organisateur_id}" class="w-full block text-center bg-gray-100 text-gray-800 font-bold py-3 px-6 rounded-lg hover:bg-gray-200">Contacter l'organisateur</button>`;
+        // Bouton Contact Organisateur
+        const contactBtnHtml = `<button id="contact-organizer-btn" data-organizer-id="${camp.organisateur_id}" class="w-full block text-center bg-gray-100 text-gray-800 font-bold py-3 px-6 rounded-lg hover:bg-gray-200 mt-2">Contacter l'organisateur</button>`;
         if(camp.organisateur_id) {
             actionContainer.innerHTML += contactBtnHtml;
             document.getElementById('contact-organizer-btn').addEventListener('click', handleContactClick);
@@ -216,7 +261,10 @@ document.addEventListener('DOMContentLoaded', async function() {
                     console.log('Erreur de partage:', error);
                 });
             } else {
-                alert("La fonction de partage n'est pas supportée sur cet appareil.");
+                // Fallback: copie dans le presse-papier
+                navigator.clipboard.writeText(window.location.href).then(() => {
+                    alert("Lien copié dans le presse-papier !");
+                });
             }
         });
     }

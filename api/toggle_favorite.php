@@ -1,75 +1,47 @@
 <?php
 // Fichier: /api/toggle_favorite.php
-// Ajoute ou supprime un camp des favoris d'un utilisateur.
-
-session_start();
-header('Content-Type: application/json');
 require_once 'config.php';
 
-// SÉCURITÉ : L'utilisateur doit être connecté.
 if (!isset($_SESSION['user']['id'])) {
-    http_response_code(403);
-    echo json_encode(['error' => 'Vous devez être connecté pour gérer vos favoris.']);
-    exit;
+    sendJson(['error' => 'Non connecté'], 403);
 }
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405);
-    echo json_encode(['error' => 'Méthode non autorisée.']);
-    exit;
-}
+$input = json_decode(file_get_contents('php://input'), true);
+$campId = $input['campId'] ?? null;
+$userId = $_SESSION['user']['id'];
+
+if (!$campId) sendJson(['error' => 'ID manquant'], 400);
 
 try {
-    $input = json_decode(file_get_contents('php://input'), true);
-    $campId = $input['campId'] ?? null;
+    // Vérifier si existe déjà
+    $stmtCheck = $pdo->prepare("SELECT 1 FROM favoris WHERE user_id = ? AND camp_id = ?");
+    $stmtCheck->execute([$userId, $campId]);
+    $exists = $stmtCheck->fetch();
 
-    if (empty($campId)) {
-        http_response_code(400);
-        echo json_encode(['error' => 'ID de camp manquant.']);
-        exit;
-    }
-
-    $userId = $_SESSION['user']['id'];
-    
-    // Étape 1 : Récupérer les favoris actuels de l'utilisateur
-    $userRecord = callAirtable('GET', 'User', null, $userId);
-    if (isset($userRecord['error'])) {
-        throw new Exception("Impossible de récupérer les informations de l'utilisateur.");
-    }
-    $currentFavorites = $userRecord['fields']['Favories'] ?? [];
-    
-    $isFavorited = in_array($campId, $currentFavorites);
-    $newFavorites = [];
-
-    // Étape 2 : Ajouter ou supprimer le camp de la liste
-    if ($isFavorited) {
-        // Le camp est déjà en favori, on le supprime (unfavorite)
-        $newFavorites = array_diff($currentFavorites, [$campId]);
+    if ($exists) {
+        // Supprimer
+        $stmtDel = $pdo->prepare("DELETE FROM favoris WHERE user_id = ? AND camp_id = ?");
+        $stmtDel->execute([$userId, $campId]);
+        $isFavorited = false;
+        
+        // Mettre à jour session
+        if(($key = array_search($campId, $_SESSION['user']['favorites'])) !== false) {
+            unset($_SESSION['user']['favorites'][$key]);
+            $_SESSION['user']['favorites'] = array_values($_SESSION['user']['favorites']);
+        }
     } else {
-        // Le camp n'est pas en favori, on l'ajoute
-        $newFavorites = $currentFavorites;
-        $newFavorites[] = $campId;
-    }
-    
-    // Étape 3 : Mettre à jour l'enregistrement de l'utilisateur avec la nouvelle liste
-    $updateData = [
-        'fields' => [
-            'Favories' => array_values($newFavorites) // Re-indexe le tableau
-        ]
-    ];
-    $updateResult = callAirtable('PATCH', 'User', $updateData, $userId);
-
-    if (isset($updateResult['error'])) {
-        throw new Exception("Erreur lors de la mise à jour des favoris.");
+        // Ajouter
+        $stmtAdd = $pdo->prepare("INSERT INTO favoris (user_id, camp_id) VALUES (?, ?)");
+        $stmtAdd->execute([$userId, $campId]);
+        $isFavorited = true;
+        
+        // Mettre à jour session
+        $_SESSION['user']['favorites'][] = $campId;
     }
 
-    // Étape 4 : Mettre à jour la session et renvoyer le nouveau statut
-    $_SESSION['user']['favorites'] = array_values($newFavorites);
-    
-    echo json_encode(['success' => true, 'isFavorited' => !$isFavorited]);
+    sendJson(['success' => true, 'isFavorited' => $isFavorited]);
 
 } catch (Exception $e) {
-    http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    sendJson(['error' => $e->getMessage()], 500);
 }
 ?>

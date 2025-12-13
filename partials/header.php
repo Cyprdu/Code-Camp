@@ -1,8 +1,11 @@
 <?php
-// Fichier: /partials/header.php (mis à jour)
+// Fichier: /partials/header.php
 
-// On démarre la session au tout début de chaque page.
-session_start();
+// CORRECTION : On ne démarre la session que si elle n'est pas déjà active
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
 // On définit les statuts de l'utilisateur pour simplifier le code HTML
 $is_logged_in = isset($_SESSION['user']);
 $is_director = $is_logged_in && ($_SESSION['user']['is_directeur'] ?? false);
@@ -28,9 +31,14 @@ $placeholder_url_mobile = "https://placehold.co/48x48/e2e8f0/2563eb?text=" . url
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style> body { font-family: 'Inter', sans-serif; } .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; } @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } } .body-no-scroll { overflow: hidden; } </style>
+    <style> 
+        body { font-family: 'Inter', sans-serif; } 
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; } 
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } } 
+        .body-no-scroll { overflow: hidden; } 
+    </style>
 </head>
-<body class="bg-gray-100 text-gray-800">
+<body class="bg-gray-100 text-gray-800 flex flex-col min-h-screen">
 
     <header class="bg-white shadow-sm sticky top-0 z-40">
         <nav class="container mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl">
@@ -156,5 +164,3 @@ $placeholder_url_mobile = "https://placehold.co/48x48/e2e8f0/2563eb?text=" . url
         <?php endif; ?>
     });
 </script>
-</body>
-</html>

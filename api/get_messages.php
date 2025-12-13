@@ -1,55 +1,45 @@
 <?php
 // Fichier: /api/get_messages.php
-// Version finale utilisant le champ de recherche d'ID unique
-
-session_start();
-header('Content-Type: application/json');
 require_once 'config.php';
 
-// Sécurité : Vérifie que l'utilisateur est connecté.
-if (!isset($_SESSION['user']['id'])) { 
-    http_response_code(403);
-    echo json_encode(['error' => 'Accès non autorisé.']);
-    exit; 
-}
+if (!isset($_SESSION['user']['id'])) { sendJson(['error' => 'Non connecté'], 403); }
 $userId = $_SESSION['user']['id'];
+$convoId = $_GET['id'] ?? null;
 
-$conversationId = $_GET['id'] ?? '';
-if (empty($conversationId)) { 
-    http_response_code(400); 
-    echo json_encode(['error' => 'ID de conversation manquant.']);
-    exit;
-}
+if (!$convoId) sendJson(['error' => 'ID manquant'], 400);
 
 try {
-    // Étape de sécurité : Vérifier que l'utilisateur fait bien partie de la conversation.
-    $convoRecord = callAirtable('GET', 'Conversations', null, $conversationId);
-    if (isset($convoRecord['error']) || !in_array($userId, $convoRecord['fields']['Participants'] ?? [])) {
-        http_response_code(403);
-        echo json_encode(['error' => "Vous n'êtes pas autorisé à voir cette conversation."]);
-        exit;
+    // Sécurité : vérifier participation
+    $stmtCheck = $pdo->prepare("SELECT 1 FROM conversation_participants WHERE conversation_id = ? AND user_id = ?");
+    $stmtCheck->execute([$convoId, $userId]);
+    if (!$stmtCheck->fetch()) {
+        sendJson(['error' => 'Accès interdit à cette conversation'], 403);
     }
 
-    // On utilise notre champ fiable pour une recherche simple et parfaite.
-    $formula = "{Conversation_ID_Unique} = '{$conversationId}'";
-    
-    // Paramètres de la requête : on trie par "Date d'envoi" en ordre ascendant.
-    $params = [
-        'filterByFormula' => $formula,
-        'sort' => [['field' => "Date d'envoi", 'direction' => 'asc']]
-    ];
-    
-    // Appel à l'API pour récupérer les messages triés.
-    $result = callAirtable('GET', 'Messages', $params);
+    // Récupérer les messages
+    $stmt = $pdo->prepare("SELECT * FROM messages WHERE conversation_id = ? ORDER BY date_envoi ASC");
+    $stmt->execute([$convoId]);
+    $messages = $stmt->fetchAll();
 
-    if (isset($result['error'])) {
-        throw new Exception($result['response']['error']['message'] ?? "Erreur lors de la récupération des messages.");
-    }
+    // Marquer comme lu
+    $stmtRead = $pdo->prepare("UPDATE conversation_participants SET has_read = 1 WHERE conversation_id = ? AND user_id = ?");
+    $stmtRead->execute([$convoId, $userId]);
 
-    echo json_encode($result['records'] ?? []);
+    // Formatage Airtable-like pour ne pas casser le JS existant (important !)
+    // Votre JS attend : record.fields.Contenu, record.fields.Auteur (array), record.fields["Date d'envoi"]
+    $formatted = array_map(function($msg) {
+        return [
+            'fields' => [
+                'Contenu' => $msg['contenu'],
+                'Auteur' => [$msg['user_id']], // Tableau car Airtable renvoyait un tableau
+                "Date d'envoi" => $msg['date_envoi']
+            ]
+        ];
+    }, $messages);
+
+    sendJson($formatted);
 
 } catch (Exception $e) {
-    http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    sendJson(['error' => $e->getMessage()], 500);
 }
 ?>

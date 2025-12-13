@@ -1,21 +1,31 @@
-import requests
+import mysql.connector
+import json
 
-api_key = 'patirCyGLZzXOZQla.dd78066f77fd3b02324df287029066dea37afabe29ce6a261b501bf739b41e53'
-base_id = 'app0AetG6XFed8k2B'
-table_name = 'MaTable'
-url = f'https://api.airtable.com/v0/{base_id}/{table_name}'
-
-headers = {
-    'Authorization': f'Bearer {api_key}',
-    'Content-Type': 'application/json'
+# Configuration de la connexion
+config = {
+  'user': 'root',
+  'password': '',
+  'host': 'localhost',
+  'database': 'colomap',
+  'raise_on_warnings': True
 }
 
-data = {
-    "records": [
-        {"fields": {"Nom": "Alice", "Âge": 30}},
-        {"fields": {"Nom": "Bob", "Âge": 25}},
-    ]
-}
+try:
+    cnx = mysql.connector.connect(**config)
+    cursor = cnx.cursor(dictionary=True)
 
-response = requests.post(url, headers=headers, json=data)
-print(response.json())
+    # Exemple : Exporter les camps
+    query = "SELECT nom, ville, prix FROM camps"
+    cursor.execute(query)
+    
+    rows = cursor.fetchall()
+    
+    # Affichage en JSON
+    print(json.dumps(rows, indent=4, ensure_ascii=False))
+
+except mysql.connector.Error as err:
+    print(f"Erreur: {err}")
+finally:
+    if 'cnx' in locals() and cnx.is_connected():
+        cursor.close()
+        cnx.close()

@@ -1,92 +1,169 @@
 <?php
-session_start();
-header('Content-Type: application/json');
+// Fichier: api/add_camp.php
 require_once 'config.php';
 
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+
 if (!isset($_SESSION['user']['id']) || !$_SESSION['user']['is_directeur']) {
-    http_response_code(403);
-    echo json_encode(['error' => 'Accès non autorisé.']);
+    header('Location: ../index.php');
     exit;
 }
 
-try {
-    $input = json_decode(file_get_contents('php://input'), true);
+// Fonction pour générer un token aléatoire unique
+function generateToken($length = 10) {
+    $characters = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    $randomString = '';
+    for ($i = 0; $i < $length; $i++) {
+        $randomString .= $characters[rand(0, strlen($characters) - 1)];
+    }
+    return $randomString;
+}
 
-    $fields = [
-        'nom' => $input['nom'],
-        'Déscription' => $input['description'],
-        'Ville ou se déroule le camp' => $input['ville'],
-        'Code Postale' => $input['code_postal'],
-        'Adresse exacte du camp' => $input['adresse'],
-        'Prix conseillé' => (int)$input['prix'],
-        'Age min' => (int)$input['age_min'],
-        'Age max' => (int)$input['age_max'],
-        'Date début du camp' => $input['date_debut'],
-        'Date fin du camp' => $input['date_fin'],
-        'illustration' => [['url' => $input['image_url']]],
-        'En attente' => true,
-        'Validé' => false,
-        'Refusé' => false,
-        'Vues' => 0,
-        'Organisateur' => [$_SESSION['user']['id']]
-    ];
+// === GESTION IMAGE ===
+$imagePath = '';
+$maxSize = 5 * 1024 * 1024; // 5 Mo
 
-    // --- AJOUT DES NOUVEAUX CHAMPS ---
-
-    // Inscription en ligne
-    if ($input['inscription_en_ligne']) {
-        $fields['Inscription en ligne'] = true;
-        $fields['Inscription hors ligne'] = false;
-        if (!empty($input['date_limite_inscription'])) {
-            $fields["Date limite d'inscription"] = $input['date_limite_inscription'];
-        }
-        $fields['quota'] = (int)($input['quota_max'] ?? 0);
-        $fields['Remise si plusieurs enfants'] = (int)($input['remise'] ?? 0);
-        
-        // Nouveaux champs
-        $fields['Montant libre'] = $input['montant_libre'] ?? false;
-        if(!empty($input['quota_fille'])) $fields['MAX FILLE'] = (int)$input['quota_fille'];
-        if(!empty($input['quota_garcon'])) $fields['MAX GARCON'] = (int)$input['quota_garcon'];
-    } else {
-        $fields['Inscription en ligne'] = false;
-        $fields['Inscription hors ligne'] = true;
-        if (!empty($input['dossier_pdf'])) $fields["dossier d'inscription"] = $input['dossier_pdf'];
-        if (!empty($input['adresse_retour'])) $fields['adresse retour dossier'] = $input['adresse_retour'];
+if (isset($_FILES['image']) && $_FILES['image']['error'] === 0) {
+    if ($_FILES['image']['size'] > $maxSize) {
+        die("Erreur : L'image est trop volumineuse (Max 5 Mo).");
+    }
+    $allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!in_array($_FILES['image']['type'], $allowedTypes)) {
+        die("Erreur : Format d'image invalide.");
     }
 
-    // Tarifs
-    if (!empty($input['tarifs'])) {
-        $fields['Lien Tarifs'] = $input['tarifs']; // On attend un tableau d'IDs de tarifs
-    }
-
-    // Gestion animateur
-    $fields['Gestion animateur'] = $input['gestion_animateur'] ?? false;
-    if ($fields['Gestion animateur']) {
-        if(!empty($input['quota_max_anim'])) $fields['quota max anim'] = (int)$input['quota_max_anim'];
-        if(!empty($input['quota_max_anim_fille'])) $fields['quota max anim FILLE'] = (int)$input['quota_max_anim_fille'];
-        if(!empty($input['quota_max_anim_garcon'])) $fields['quota max anim GARCON'] = (int)$input['quota_max_anim_garcon'];
-        $fields['anim +18'] = $input['anim_majeur'] ?? false;
-        if(!empty($input['quota_fille_mineur'])) $fields['quota max anim FILLE -18'] = (int)$input['quota_fille_mineur'];
-        if(!empty($input['quota_fille_majeur'])) $fields['quota max anim FILLE +18'] = (int)$input['quota_fille_majeur'];
-        if(!empty($input['quota_garcon_mineur'])) $fields['quota max anim GARCON -18'] = (int)$input['quota_garcon_mineur'];
-        if(!empty($input['quota_garcon_majeur'])) $fields['quota max anim GARCON +18'] = (int)$input['quota_garcon_majeur'];
-        $fields['BAFA ANIM'] = $input['bafa_obligatoire'] ?? false;
-        $fields['paiement anim'] = $input['paiement_anim'] ?? false;
-        if(!empty($input['prix_anim'])) $fields['prix anim'] = (float)$input['prix_anim'];
-        $fields['montant libre anim'] = $input['montant_libre_anim'] ?? false;
-        $fields['rémunération anim'] = $input['remuneration_anim'] ?? false;
-    }
-
-    $campData = ['fields' => $fields];
-    $result = callAirtable('POST', 'Camps', $campData);
-
-    if (isset($result['error'])) {
-        throw new Exception($result['response']['error']['message'] ?? "Erreur inconnue.");
-    }
+    $uploadDir = '../uploads/camps/';
+    if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
     
-    echo json_encode(['success' => 'Votre camp a été soumis pour approbation !']);
+    $fileExt = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
+    $fileName = uniqid('camp_') . '.' . $fileExt;
+    $destPath = $uploadDir . $fileName;
+
+    if (move_uploaded_file($_FILES['image']['tmp_name'], $destPath)) {
+        $imagePath = 'uploads/camps/' . $fileName;
+    } else {
+        die("Erreur upload image.");
+    }
+} else {
+    die("Erreur : Image obligatoire.");
+}
+
+// === RÉCUPÉRATION DONNÉES ===
+$nom = $_POST['nom'];
+$description = $_POST['description'];
+$ville = $_POST['ville'];
+$adresse = $_POST['adresse'] ?? '';
+$cp = $_POST['cp'];
+$age_min = $_POST['age_min'];
+$age_max = $_POST['age_max'];
+$date_debut = $_POST['date_debut'];
+$date_fin = $_POST['date_fin'];
+
+// Point 1 : Gestion Camp Privé
+$prive = isset($_POST['prive']) ? 1 : 0;
+// Point 2 : Génération Token
+$token = generateToken(11); // ex: Xy78kLmP0qZ
+
+$inscription_en_ligne = isset($_POST['inscription_en_ligne']) ? 1 : 0;
+$prix_affiche = 0;
+$organisateur_id = null;
+$tarifs = [];
+
+// Point 3 : Correction Prix Minimum
+if ($inscription_en_ligne) {
+    $organisateur_id = $_POST['organisateur_id'];
+    $tarifsJson = $_POST['tarifs'] ?? '[]';
+    $tarifs = json_decode($tarifsJson, true);
+    
+    if (!empty($tarifs) && is_array($tarifs)) {
+        // On extrait les prix et on prend le plus petit
+        $prixList = array_column($tarifs, 'prix'); 
+        if (!empty($prixList)) {
+            $prix_affiche = min($prixList);
+        }
+    }
+} else {
+    $prix_affiche = $_POST['prix_simple'] ?? 0;
+}
+
+// Si le prix est toujours 0 ou vide, on force 0 pour éviter erreur SQL
+$prix_affiche = floatval($prix_affiche);
+
+// Quotas & Options
+$quota_global = $_POST['quota_global'] ?? 0;
+$quota_fille = $_POST['quota_fille'] ?? 0;
+$quota_garcon = $_POST['quota_garcon'] ?? 0;
+$remise_fratrie = $_POST['remise_fratrie'] ?? 0;
+$date_limite = !empty($_POST['date_limite_inscription']) ? $_POST['date_limite_inscription'] : null;
+$lien_externe = $_POST['lien_externe'] ?? '';
+$adresse_retour = $_POST['adresse_retour_dossier'] ?? '';
+
+// Animateurs
+$gestion_anim = isset($_POST['gestion_animateur']) ? 1 : 0;
+$quota_max_anim = $_POST['quota_max_anim'] ?? 0;
+$quota_anim_fille = $_POST['quota_anim_fille'] ?? 0;
+$quota_anim_garcon = $_POST['quota_anim_garcon'] ?? 0;
+$anim_plus_18 = isset($_POST['anim_plus_18']) ? 1 : 0;
+$bafa_obligatoire = isset($_POST['bafa_obligatoire']) ? 1 : 0;
+$remuneration_anim = isset($_POST['remuneration_anim']) ? 1 : 0;
+$anim_doit_payer = isset($_POST['anim_doit_payer']) ? 1 : 0;
+$prix_anim = ($anim_doit_payer) ? ($_POST['prix_anim'] ?? 0) : 0;
+
+try {
+    $sql = "INSERT INTO camps (
+        nom, description, ville, adresse, code_postal, prix, image_url,
+        age_min, age_max, date_debut, date_fin, 
+        inscription_en_ligne, inscription_hors_ligne,
+        organisateur_id, date_limite_inscription, remise_fratrie,
+        quota_global, quota_fille, quota_garcon,
+        lien_externe, adresse_retour_dossier,
+        gestion_animateur, quota_max_anim, quota_anim_fille, quota_anim_garcon,
+        anim_plus_18, bafa_obligatoire, remuneration_anim, anim_doit_payer, prix_anim,
+        valide, en_attente, refuse,
+        prive, token 
+    ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, 
+        ?, ?, ?,
+        ?, ?, ?,
+        ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        0, 1, 0,
+        ?, ?
+    )";
+    
+    $hors_ligne = $inscription_en_ligne ? 0 : 1;
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([
+        $nom, $description, $ville, $adresse, $cp, $prix_affiche, $imagePath,
+        $age_min, $age_max, $date_debut, $date_fin,
+        $inscription_en_ligne, $hors_ligne,
+        $organisateur_id, $date_limite, $remise_fratrie,
+        $quota_global, $quota_fille, $quota_garcon,
+        $lien_externe, $adresse_retour,
+        $gestion_anim, $quota_max_anim, $quota_anim_fille, $quota_anim_garcon,
+        $anim_plus_18, $bafa_obligatoire, $remuneration_anim, $anim_doit_payer, $prix_anim,
+        $prive, $token
+    ]);
+    
+    $campId = $pdo->lastInsertId();
+
+    if ($inscription_en_ligne && !empty($tarifs)) {
+        $sqlTarif = "INSERT INTO camps_tarifs (camp_id, tarif_id) VALUES (?, ?)";
+        $stmtTarif = $pdo->prepare($sqlTarif);
+        foreach ($tarifs as $t) {
+            $stmtTarif->execute([$campId, $t['id']]);
+        }
+    }
+
+    // Redirection vers l'URL sécurisée (Point 2)
+    header("Location: ../camp_details.php?t=" . $token);
+    exit;
+
 } catch (Exception $e) {
-    http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    die("Erreur SQL : " . $e->getMessage());
 }
 ?>

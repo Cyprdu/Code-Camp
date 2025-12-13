@@ -1,56 +1,65 @@
 <?php
-// Fichier: /api/get_camp_details.php (mis à jour)
-session_start();
-header('Content-Type: application/json');
+// Fichier: /api/get_camp_details.php
 require_once 'config.php';
 
-if (!isset($_GET['id']) || empty($_GET['id'])) {
-    http_response_code(400);
-    echo json_encode(['error' => 'ID de camp manquant.']);
-    exit;
-}
-$campId = $_GET['id'];
+$id = $_GET['id'] ?? 0;
 
 try {
-    $campRecord = callAirtable('GET', 'Camps', null, $campId);
-    if (isset($campRecord['error'])) {
-        http_response_code(404);
-        echo json_encode(['error' => 'Camp introuvable.']);
-        exit;
+    // AJOUT : on sélectionne le "token"
+    $sql = "SELECT c.*, o.nom as organisateur_nom, o.email as organisateur_email, o.tel as organisateur_tel 
+            FROM camps c 
+            LEFT JOIN organisateurs o ON c.organisateur_id = o.id 
+            WHERE c.id = ?";
+            
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([$id]);
+    $camp = $stmt->fetch();
+
+    if (!$camp) {
+        sendJson(['error' => 'Camp introuvable'], 404);
     }
-    $fields = $campRecord['fields'];
 
-    $currentViews = $fields['Vues'] ?? 0;
-    try {
-        callAirtable('PATCH', 'Camps', ['fields' => ['Vues' => ($currentViews + 1)]], $campId);
-    } catch (Exception $e) { /* On ignore */ }
+    // Calcul des places restantes (inchangé)
+    $stmtQuota = $pdo->prepare("SELECT COUNT(*) FROM inscriptions WHERE camp_id = ?");
+    $stmtQuota->execute([$id]);
+    $inscrits = $stmtQuota->fetchColumn();
+    $places_restantes = $camp['quota_global'] - $inscrits;
 
-    $campDetails = [
-        'id' => $campRecord['id'],
-        'nom' => $fields['nom'] ?? 'N/A',
-        'description' => !empty($fields['Déscription']) ? nl2br(htmlspecialchars($fields['Déscription'])) : '',
-        'ville' => $fields['Ville ou se déroule le camp'] ?? 'N/A',
-        'prix' => $fields['Prix conseillé'] ?? 0,
-        'age_min' => $fields['Age min'] ?? 0,
-        'age_max' => $fields['Age max'] ?? 0,
-        'date_debut' => $fields['Date début du camp'] ?? null,
-        'date_fin' => $fields['Date fin du camp'] ?? null,
-        'image_url' => !empty($fields['illustration']) ? $fields['illustration'][0]['url'] : 'https://placehold.co/1200x600',
-        'organisateur_id' => !empty($fields['Organisme']) ? $fields['Organisme'][0] : null,
-        
-        // --- NOUVELLES DONNÉES POUR LES ANIMATEURS ---
-        'quota_max_anim' => $fields['quota max anim'] ?? null,
-        'bafa_obligatoire' => $fields['BAFA ANIM'] ?? false,
-        'anim_majeur' => $fields['anim +18'] ?? false,
-        'remuneration_anim' => $fields['rémunération anim'] ?? false,
-        'paiement_anim' => $fields['paiement anim'] ?? false,
-        'prix_anim' => $fields['prix anim'] ?? 0
+    // Comptage des vues (inchangé)
+    $pdo->prepare("UPDATE camps SET vues = vues + 1 WHERE id = ?")->execute([$id]);
+
+    // Likes (inchangé)
+    $stmtLikes = $pdo->prepare("SELECT COUNT(*) FROM favoris WHERE camp_id = ?");
+    $stmtLikes->execute([$id]);
+    $likes = $stmtLikes->fetchColumn();
+
+    $response = [
+        'id' => $camp['id'],
+        'token' => $camp['token'], // IMPORTANT : On renvoie le token
+        'nom' => $camp['nom'],
+        'description' => nl2br(htmlspecialchars($camp['description'])),
+        'ville' => $camp['ville'],
+        'adresse' => $camp['adresse'],
+        'prix' => $camp['prix'],
+        'image_url' => $camp['image_url'],
+        'date_debut' => $camp['date_debut'],
+        'date_fin' => $camp['date_fin'],
+        'age_min' => $camp['age_min'],
+        'age_max' => $camp['age_max'],
+        'places_restantes' => max(0, $places_restantes),
+        'inscription_en_ligne' => $camp['inscription_en_ligne'],
+        'inscription_hors_ligne' => $camp['inscription_hors_ligne'],
+        'lien_externe' => $camp['lien_externe'],
+        'adresse_retour' => nl2br(htmlspecialchars($camp['adresse_retour_dossier'] ?? '')),
+        'vues' => $camp['vues'],
+        'likes' => $likes,
+        'organisateur_id' => $camp['organisateur_id'],
+        'prive' => $camp['prive']
     ];
 
-    echo json_encode($campDetails);
+    sendJson($response);
 
 } catch (Exception $e) {
-    http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    sendJson(['error' => $e->getMessage()], 500);
 }
 ?>

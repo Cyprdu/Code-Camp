@@ -1,56 +1,54 @@
 <?php
 // Fichier: /api/start_conversation.php
-// Version sécurisée qui crée une conversation privée entre un parent et un directeur.
-
-session_start();
-header('Content-Type: application/json');
 require_once 'config.php';
 
-if (!isset($_SESSION['user']['id'])) { http_response_code(403); exit; }
+if (!isset($_SESSION['user']['id'])) { sendJson(['error' => 'Accès interdit'], 403); }
 
 $input = json_decode(file_get_contents('php://input'), true);
-$organisateurId = $input['organisateurId'] ?? null;
-if (empty($organisateurId)) { http_response_code(400); exit; }
+$orgId = $input['organisateurId'] ?? null;
+$userId = $_SESSION['user']['id'];
 
-$parentId = $_SESSION['user']['id'];
-$parentName = $_SESSION['user']['prenom'] . ' ' . $_SESSION['user']['nom'];
+if (!$orgId) sendJson(['error' => 'Organisateur manquant'], 400);
 
 try {
-    // Étape 1: Récupérer les informations de l'organisme pour trouver le directeur.
-    $orgRecord = callAirtable('GET', 'Organisateur', null, $organisateurId);
-    if (isset($orgRecord['error'])) throw new Exception("Organisateur introuvable.");
+    // 1. Trouver le directeur de l'organisme
+    $stmtOrg = $pdo->prepare("SELECT user_id, nom FROM organisateurs WHERE id = ?");
+    $stmtOrg->execute([$orgId]);
+    $org = $stmtOrg->fetch();
 
-    $directorId = $orgRecord['fields']['Liaison'][0] ?? null;
-    if (!$directorId) throw new Exception("Le directeur de cet organisme n'est pas défini.");
-
-    // Le parent ne peut pas se contacter lui-même.
-    if ($parentId === $directorId) {
-        throw new Exception("Vous ne pouvez pas démarrer une conversation avec vous-même.");
+    if (!$org || !$org['user_id']) {
+        throw new Exception("Directeur introuvable pour cet organisme.");
     }
-    
-    // Étape 2: Créer une nouvelle conversation.
-    $orgName = $orgRecord['fields']['Nom de l\'organisme'] ?? 'Organisateur';
-    
-    // Le nom de la conversation est maintenant plus descriptif.
-    $conversationName = "{$parentName} / {$orgName}";
+    $directorId = $org['user_id'];
 
-    $conversationData = [
-        'fields' => [
-            'Nom' => $conversationName,
-            'Participants' => [$parentId, $directorId], // Lie le parent et le directeur
-            'Organisme' => [$organisateurId]
-        ]
-    ];
-    
-    $newConversation = callAirtable('POST', 'Conversations', $conversationData);
-    if (isset($newConversation['error'])) {
-        throw new Exception($newConversation['response']['error']['message'] ?? 'Erreur Airtable lors de la création.');
+    if ($directorId == $userId) {
+        throw new Exception("Vous ne pouvez pas discuter avec vous-même.");
     }
 
-    echo json_encode(['conversationId' => $newConversation['id']]);
+    // 2. Vérifier si une conversation existe déjà entre ces deux personnes
+    // (Simplification : on cherche une convo commune. Pour une vraie unicité par sujet, il faudrait plus de logique)
+    // Ici on crée une nouvelle à chaque fois comme dans votre ancien code, ou on peut vérifier.
+    
+    // Création de la conversation
+    $pdo->beginTransaction();
+    
+    $convoName = $_SESSION['user']['prenom'] . ' ' . $_SESSION['user']['nom'] . ' / ' . $org['nom'];
+    
+    $stmtConvo = $pdo->prepare("INSERT INTO conversations (nom) VALUES (?)");
+    $stmtConvo->execute([$convoName]);
+    $convoId = $pdo->lastInsertId();
+
+    // Ajout des participants
+    $stmtPart = $pdo->prepare("INSERT INTO conversation_participants (conversation_id, user_id, has_read) VALUES (?, ?, ?)");
+    $stmtPart->execute([$convoId, $userId, 1]); // L'initiateur a lu
+    $stmtPart->execute([$convoId, $directorId, 0]); // Le destinataire n'a pas lu
+
+    $pdo->commit();
+    
+    sendJson(['conversationId' => $convoId]);
 
 } catch (Exception $e) {
-    http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    sendJson(['error' => $e->getMessage()], 500);
 }
 ?>

@@ -191,11 +191,17 @@ document.addEventListener('DOMContentLoaded', function() {
         camps.forEach(camp => {
             const isFavorited = !isAnimator && userFavorites.includes(camp.id);
             const detailPage = isAnimator ? 'info-camp-animateur.php' : 'camp_details.php';
+            
+            // MODIFICATION: Construction du lien sécurisé
+            // Si c'est un animateur, on garde l'ID (ou on adapte si la page animateur change)
+            // Si c'est public, on utilise le token (t=...)
+            const linkParam = isAnimator ? `id=${camp.id}` : `t=${camp.token}`;
+            
             const priceDisplay = !isAnimator ? `<p class="text-blue-600 font-bold text-lg">${camp.prix}€</p>` : '';
             
             newContent += `
                 <div class="bg-white rounded-lg shadow-md overflow-hidden transform hover:-translate-y-1 transition-transform duration-300 group">
-                    <div class="relative cursor-pointer" onclick="window.location.href='${detailPage}?id=${camp.id}'">
+                    <div class="relative cursor-pointer" onclick="window.location.href='${detailPage}?${linkParam}'">
                         <img src="${camp.image_url}" alt="Image pour ${camp.nom}" class="w-full h-48 object-cover" onerror="this.onerror=null;this.src='https://placehold.co/600x400/e2e8f0/cbd5e0?text=Image+invalide';">
                         ${!isAnimator && isLoggedIn ? `
                         <button class="favorite-button absolute top-3 right-3 bg-white/70 backdrop-blur-sm p-2 rounded-full transition-all hover:scale-110" data-camp-id="${camp.id}" title="Ajouter aux favoris">
@@ -204,7 +210,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             </svg>
                         </button>` : ''}
                     </div>
-                    <div class="p-4 cursor-pointer" onclick="window.location.href='${detailPage}?id=${camp.id}'">
+                    <div class="p-4 cursor-pointer" onclick="window.location.href='${detailPage}?${linkParam}'">
                          <h3 class="font-bold text-lg mb-2 truncate">${camp.nom}</h3>
                          <p class="text-gray-600 text-sm mb-1">📍 ${camp.ville}</p>
                          <p class="text-gray-600 text-sm mb-3">🎂 ${camp.age_min} - ${camp.age_max} ans</p>

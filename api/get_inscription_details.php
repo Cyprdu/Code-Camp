@@ -1,61 +1,42 @@
 <?php
-session_start();
-header('Content-Type: application/json');
 require_once 'config.php';
+if (!isset($_SESSION['user']['id'])) { sendJson(['error' => 'Non connecté'], 403); }
 
-// Sécurité
-if (!isset($_SESSION['user']['id'])) { http_response_code(403); exit; }
-$userId = $_SESSION['user']['id'];
-$campId = $_GET['camp_id'] ?? '';
-$childId = $_GET['child_id'] ?? '';
-if (empty($campId) || empty($childId)) { http_response_code(400); exit; }
+$campId = $_GET['camp_id'];
+$childId = $_GET['child_id'];
 
 try {
-    // Étape 1 : Vérifier que l'enfant appartient bien à l'utilisateur connecté
-    $childRecord = callAirtable('GET', 'Enfants', null, $childId);
-    if (isset($childRecord['error']) || !in_array($userId, $childRecord['fields']['Parent'] ?? [])) {
-        http_response_code(403);
-        echo json_encode(['error' => 'Accès non autorisé à cet enfant.']);
-        exit;
-    }
+    // Vérification appartenance enfant
+    $stmtChild = $pdo->prepare("SELECT prenom FROM enfants WHERE id = ? AND parent_id = ?");
+    $stmtChild->execute([$childId, $_SESSION['user']['id']]);
+    $child = $stmtChild->fetch();
+    
+    if (!$child) sendJson(['error' => 'Enfant non trouvé'], 404);
 
-    // Étape 2 : Récupérer les détails du camp
-    $campRecord = callAirtable('GET', 'Camps', null, $campId);
-    if (isset($campRecord['error'])) throw new Exception('Camp introuvable.');
+    // Infos Camp + Organisateur
+    $sqlCamp = "SELECT c.nom, c.adresse, c.date_debut, o.nom as org_nom, o.email as org_mail, o.tel as org_tel
+                FROM camps c
+                LEFT JOIN organisateurs o ON c.organisateur_id = o.id
+                WHERE c.id = ?";
+    $stmtCamp = $pdo->prepare($sqlCamp);
+    $stmtCamp->execute([$campId]);
+    $camp = $stmtCamp->fetch();
 
-    // Étape 3 : Récupérer les détails de l'organisateur
-    $organisateurId = $campRecord['fields']['Organisme'][0] ?? null;
-    $organisateurDetails = ['nom' => 'Non spécifié', 'mail' => '', 'tel' => ''];
-    if ($organisateurId) {
-        $orgRecord = callAirtable('GET', 'Organisateur', null, $organisateurId);
-        if (!isset($orgRecord['error'])) {
-            $organisateurDetails = [
-                'nom' => $orgRecord['fields']['Nom de l\'organisme'] ?? 'N/A',
-                'mail' => $orgRecord['fields']['Mail'] ?? 'N/A',
-                'tel' => $orgRecord['fields']['Tel'] ?? 'N/A'
-            ];
-        }
-    }
-
-    // Étape 4 : Formater et renvoyer la réponse
-    $response = [
-        'enfant' => [
-            'id' => $childRecord['id'],
-            'prenom' => $childRecord['fields']['Prénom'] ?? 'N/A'
-        ],
+    sendJson([
+        'enfant' => ['prenom' => $child['prenom']],
         'camp' => [
-            'id' => $campRecord['id'],
-            'nom' => $campRecord['fields']['nom'] ?? 'N/A',
-            'adresse' => $campRecord['fields']['Adresse exacte du camp'] ?? 'N/A',
-            'date_debut' => $campRecord['fields']['Date début du camp'] ?? null
+            'nom' => $camp['nom'],
+            'adresse' => $camp['adresse'],
+            'date_debut' => $camp['date_debut']
         ],
-        'organisateur' => $organisateurDetails
-    ];
-
-    echo json_encode($response);
+        'organisateur' => [
+            'nom' => $camp['org_nom'],
+            'mail' => $camp['org_mail'],
+            'tel' => $camp['org_tel']
+        ]
+    ]);
 
 } catch (Exception $e) {
-    http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    sendJson(['error' => $e->getMessage()], 500);
 }
 ?>

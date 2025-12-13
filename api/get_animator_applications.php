@@ -1,47 +1,37 @@
 <?php
-// Fichier: /api/get_animator_applications.php (Corrigé)
-session_start();
-header('Content-Type: application/json');
 require_once 'config.php';
-
-if (!isset($_SESSION['user']['id']) || !$_SESSION['user']['is_directeur']) {
-    http_response_code(403); 
-    echo json_encode(['error' => 'Accès non autorisé']);
-    exit;
-}
+if (!isset($_SESSION['user']['is_directeur']) || !$_SESSION['user']['is_directeur']) { sendJson(['error' => 'Interdit'], 403); }
 
 try {
-    $directorId = $_SESSION['user']['id'];
-    $tableName = 'Candidatures';
-    
-    // CORRECTION : La formule doit utiliser le champ Lookup correct.
-    $formula = "{ID Directeur (from Camp)} = '{$directorId}'";
+    // Récupérer les candidatures pour les camps gérés par les orgs de l'utilisateur
+    $sql = "SELECT cand.*, c.nom as camp_nom, u.nom as user_nom, u.prenom as user_prenom, u.email as user_mail, u.tel as user_tel
+            FROM candidatures cand
+            JOIN camps c ON cand.camp_id = c.id
+            JOIN organisateurs o ON c.organisateur_id = o.id
+            JOIN users u ON cand.user_id = u.id
+            WHERE o.user_id = ?";
+            
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([$_SESSION['user']['id']]);
+    $apps = $stmt->fetchAll();
 
-    $result = callAirtable('GET', $tableName, ['filterByFormula' => $formula]);
-    if (isset($result['error'])) {
-        $errorMessage = $result['response']['error']['message'] ?? "Erreur de récupération des candidatures.";
-        throw new Exception($errorMessage);
-    }
-
-    $applications = [];
-    foreach ($result['records'] as $record) {
-        $fields = $record['fields'];
-        $applications[] = [
-            'id' => $record['id'],
-            'candidat_nom' => ($fields['Prénom (from Candidat)'][0] ?? '') . ' ' . ($fields['Nom (from Candidat)'][0] ?? ''),
-            'candidat_mail' => $fields['Mail (from Candidat)'][0] ?? 'N/A',
-            'candidat_tel' => $fields['Téléphone (from Candidat)'][0] ?? 'N/A',
-            'camp_nom' => $fields['Nom du camp (from Camp)'][0] ?? 'N/A',
-            'motivation' => $fields['Motivation'] ?? '',
-            'statut' => $fields['Statut'] ?? 'N/A',
-            'date' => $record['createdTime']
+    // Formatage pour le front
+    $output = array_map(function($app) {
+        return [
+            'id' => $app['id'],
+            'candidat_nom' => $app['user_prenom'] . ' ' . $app['user_nom'],
+            'candidat_mail' => $app['user_mail'],
+            'candidat_tel' => $app['user_tel'],
+            'camp_nom' => $app['camp_nom'],
+            'motivation' => $app['motivation'],
+            'statut' => $app['statut'],
+            'date' => $app['created_at']
         ];
-    }
-    
-    echo json_encode($applications);
+    }, $apps);
+
+    sendJson($output);
 
 } catch (Exception $e) {
-    http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    sendJson(['error' => $e->getMessage()], 500);
 }
 ?>

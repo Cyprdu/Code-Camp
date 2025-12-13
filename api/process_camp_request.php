@@ -1,64 +1,24 @@
 <?php
-// Fichier: /api/process_camp_request.php
-session_start();
-header('Content-Type: application/json');
 require_once 'config.php';
-
-if (!isset($_SESSION['user']) || !($_SESSION['user']['is_admin'] ?? false)) {
-    http_response_code(403); exit;
-}
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405); exit;
-}
+if (!isset($_SESSION['user']['is_admin']) || !$_SESSION['user']['is_admin']) { sendJson(['error' => 'Interdit'], 403); }
 
 $input = json_decode(file_get_contents('php://input'), true);
-$campId = $input['campId'] ?? null;
-$action = $input['action'] ?? null;
-
-if (!$campId || !$action || !in_array($action, ['approve', 'deny'])) {
-    http_response_code(400); 
-    echo json_encode(['error' => 'Action ou ID de camp invalide.']);
-    exit;
-}
+$action = $input['action'] ?? '';
+$campId = $input['campId'] ?? 0;
 
 try {
     if ($action === 'approve') {
-        // Approuver : on coche "Validé" et on décoche "En attente"
-        $updateData = [
-            'fields' => [
-                'Validé' => true,
-                'En attente' => false,
-                'Refusé' => false
-            ]
-        ];
-        callAirtable('PATCH', 'Camps', $updateData, $campId);
-
-        // On lie aussi le camp au profil du directeur pour qu'il puisse le gérer
-        $campRecord = callAirtable('GET', 'Camps', null, $campId);
-        if (!isset($campRecord['error']) && isset($campRecord['fields']['Organisateur'][0])) {
-            $organizerId = $campRecord['fields']['Organisateur'][0];
-            $userRecord = callAirtable('GET', 'User', null, $organizerId);
-            $existingCamps = $userRecord['fields']['proprio'] ?? [];
-            $existingCamps[] = $campId;
-            callAirtable('PATCH', 'User', ['fields' => ['proprio' => array_values(array_unique($existingCamps))]], $organizerId);
-        }
-
+        $sql = "UPDATE camps SET valide = 1, en_attente = 0, refuse = 0 WHERE id = ?";
     } elseif ($action === 'deny') {
-        // Refuser : on coche "Refusé" et on décoche "En attente"
-        $updateData = [
-            'fields' => [
-                'Refusé' => true,
-                'En attente' => false,
-                'Validé' => false
-            ]
-        ];
-        callAirtable('PATCH', 'Camps', $updateData, $campId);
+        $sql = "UPDATE camps SET valide = 0, en_attente = 0, refuse = 1 WHERE id = ?";
+    } else {
+        throw new Exception("Action inconnue");
     }
     
-    echo json_encode(['success' => true]);
+    $pdo->prepare($sql)->execute([$campId]);
+    sendJson(['success' => true]);
 
 } catch (Exception $e) {
-    http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    sendJson(['error' => $e->getMessage()], 500);
 }
 ?>

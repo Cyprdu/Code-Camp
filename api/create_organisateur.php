@@ -1,51 +1,40 @@
 <?php
-session_start();
-header('Content-Type: application/json');
 require_once 'config.php';
 
+// Sécurité
 if (!isset($_SESSION['user']['id']) || !$_SESSION['user']['is_directeur']) {
-    http_response_code(403);
-    echo json_encode(['error' => 'Accès non autorisé.']);
-    exit;
+    sendJson(['error' => 'Accès interdit'], 403);
 }
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405);
-    echo json_encode(['error' => 'Méthode non autorisée.']);
-    exit;
+
+$input = json_decode(file_get_contents('php://input'), true);
+
+// Supporte 'email' ou 'mail' venant du JS
+$email = $input['email'] ?? $input['mail'] ?? '';
+
+if (empty($input['nom']) || empty($email)) {
+    sendJson(['error' => 'Le nom et l\'email sont obligatoires.'], 400);
 }
 
 try {
-    $input = json_decode(file_get_contents('php://input'), true);
+    $stmt = $pdo->prepare("INSERT INTO organisateurs (nom, tel, email, web, user_id, portefeuille) VALUES (?, ?, ?, ?, ?, 0)");
+    $stmt->execute([
+        $input['nom'],
+        $input['tel'] ?? '',
+        $email,
+        $input['web'] ?? '',
+        $_SESSION['user']['id']
+    ]);
     
-    $required_fields = ['nom', 'tel', 'mail'];
-    foreach($required_fields as $field) {
-        if(empty($input[$field])) {
-            throw new Exception("Le champ '$field' est obligatoire.");
-        }
-    }
+    $newId = $pdo->lastInsertId();
 
-    $data = [
-        'fields' => [
-            "Nom de l'organisme" => $input['nom'],
-            'Tel' => $input['tel'],
-            'Mail' => $input['mail'],
-            'Web' => $input['web'] ?? '',
-            'Portefeuille' => 0,
-            'Liaison' => [$_SESSION['user']['id']]
-        ]
-    ];
-
-    $result = callAirtable('POST', 'Organisateur', $data);
-
-    if (isset($result['error'])) {
-        throw new Exception($result['response']['error']['message'] ?? "Erreur lors de la création de l'organisme.");
-    }
-
-    http_response_code(201);
-    echo json_encode($result);
+    // RÉPONSE PROPRE (SQL style)
+    sendJson([
+        'id' => $newId,
+        'nom' => $input['nom'],
+        'email' => $email
+    ], 201);
 
 } catch (Exception $e) {
-    http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    sendJson(['error' => $e->getMessage()], 500);
 }
 ?>

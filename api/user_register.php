@@ -1,56 +1,54 @@
 <?php
-// Fichier: /api/user_register.php (modifié)
-header('Content-Type: application/json');
+// Fichier: /api/user_register.php
 require_once 'config.php';
 
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    sendJson(['error' => 'Méthode non autorisée.'], 405);
+}
+
+$input = json_decode(file_get_contents('php://input'), true);
+$nom = $input['nom'] ?? null;
+$prenom = $input['prenom'] ?? null;
+$mail = $input['mail'] ?? null;
+$password = $input['password'] ?? null;
+$tel = $input['tel'] ?? '';
+$role = $input['role'] ?? 'parent';
+$bafa = !empty($input['bafa']) ? 1 : 0;
+
+// Validation basique
+if (!$nom || !$prenom || !$mail || !$password) {
+    sendJson(['error' => 'Tous les champs obligatoires doivent être remplis.'], 400);
+}
+
 try {
-    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        http_response_code(405);
-        echo json_encode(['error' => 'Méthode non autorisée.']);
-        exit;
+    // 1. Vérifier si l'email existe déjà
+    $stmtCheck = $pdo->prepare("SELECT id FROM users WHERE email = ?");
+    $stmtCheck->execute([$mail]);
+    if ($stmtCheck->fetch()) {
+        sendJson(['error' => 'Un compte avec cet email existe déjà.'], 409);
     }
 
-    $input = json_decode(file_get_contents('php://input'), true);
-    $mail = $input['mail'] ?? null;
-    $password = $input['password'] ?? null;
+    // 2. Créer le nouvel utilisateur
+    $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+    $isAnimateur = ($role === 'animateur') ? 1 : 0;
 
-    // Vérification de l'existence de l'email
-    $tableName = 'User';
-    $formula = "LOWER({mail}) = '" . strtolower(addslashes($mail)) . "'";
-    $existingUser = callAirtable('GET', $tableName, ['filterByFormula' => $formula]);
-    if (!empty($existingUser['records'])) {
-        http_response_code(409);
-        echo json_encode(['error' => 'Un compte avec cette adresse email existe déjà.']);
-        exit;
-    }
+    $sql = "INSERT INTO users (nom, prenom, email, password, tel, is_animateur, bafa) 
+            VALUES (:nom, :prenom, :email, :pass, :tel, :anim, :bafa)";
     
-    $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-    $isAnimator = ($input['role'] ?? 'parent') === 'animateur';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([
+        'nom' => $nom,
+        'prenom' => $prenom,
+        'email' => $mail,
+        'pass' => $hashedPassword,
+        'tel' => $tel,
+        'anim' => $isAnimateur,
+        'bafa' => $bafa
+    ]);
 
-    $data = [
-        'fields' => [
-            'nom' => $input['nom'],
-            'prenom' => $input['prenom'],
-            'mail' => $mail,
-            'Naissance' => $input['naissance'],
-            'Sexe' => $input['sexe'],
-            'Mot de passe aché' => $hashed_password,
-            'Annimateur' => $isAnimator,
-            'BAFA' => $input['bafa'] ?? false
-        ]
-    ];
-    
-    $createResult = callAirtable('POST', $tableName, $data);
-
-    if (isset($createResult['error'])) {
-        throw new Exception($createResult['response']['error']['message'] ?? 'Erreur lors de la création du compte.');
-    } else {
-        http_response_code(201);
-        echo json_encode(['success' => 'Compte créé avec succès !']);
-    }
+    sendJson(['success' => 'Compte créé avec succès ! Connectez-vous maintenant.'], 201);
 
 } catch (Exception $e) {
-    http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    sendJson(['error' => $e->getMessage()], 500);
 }
 ?>
