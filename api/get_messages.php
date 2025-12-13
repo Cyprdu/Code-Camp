@@ -1,45 +1,49 @@
 <?php
-// Fichier: /api/get_messages.php
+// Fichier : api/get_messages.php
 require_once 'config.php';
 
-if (!isset($_SESSION['user']['id'])) { sendJson(['error' => 'Non connecté'], 403); }
-$userId = $_SESSION['user']['id'];
-$convoId = $_GET['id'] ?? null;
+if (!isset($_SESSION['user']['id'])) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Non connecté']);
+    exit;
+}
 
-if (!$convoId) sendJson(['error' => 'ID manquant'], 400);
+$myId = $_SESSION['user']['id'];
+$convId = $_GET['conv_id'] ?? 0;
+
+if (!$convId) {
+    echo json_encode([]);
+    exit;
+}
 
 try {
-    // Sécurité : vérifier participation
-    $stmtCheck = $pdo->prepare("SELECT 1 FROM conversation_participants WHERE conversation_id = ? AND user_id = ?");
-    $stmtCheck->execute([$convoId, $userId]);
-    if (!$stmtCheck->fetch()) {
-        sendJson(['error' => 'Accès interdit à cette conversation'], 403);
+    // 1. SÉCURITÉ : Vérifier que je suis participant à cette conversation
+    $checkSql = "SELECT id FROM conversations WHERE id = ? AND (user_1_id = ? OR user_2_id = ?)";
+    $checkStmt = $pdo->prepare($checkSql);
+    $checkStmt->execute([$convId, $myId, $myId]);
+    
+    if ($checkStmt->rowCount() === 0) {
+        // L'utilisateur tente d'accéder à une conversation qui n'est pas la sienne !
+        http_response_code(403);
+        echo json_encode(['error' => 'Accès interdit à cette conversation.']);
+        exit;
     }
 
-    // Récupérer les messages
-    $stmt = $pdo->prepare("SELECT * FROM messages WHERE conversation_id = ? ORDER BY date_envoi ASC");
-    $stmt->execute([$convoId]);
+    // 2. Si c'est bon, on récupère les messages
+    $sql = "SELECT m.*, u.prenom, u.nom 
+            FROM messages m 
+            JOIN users u ON m.sender_id = u.id 
+            WHERE m.conversation_id = ? 
+            ORDER BY m.created_at ASC";
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([$convId]);
     $messages = $stmt->fetchAll();
 
-    // Marquer comme lu
-    $stmtRead = $pdo->prepare("UPDATE conversation_participants SET has_read = 1 WHERE conversation_id = ? AND user_id = ?");
-    $stmtRead->execute([$convoId, $userId]);
-
-    // Formatage Airtable-like pour ne pas casser le JS existant (important !)
-    // Votre JS attend : record.fields.Contenu, record.fields.Auteur (array), record.fields["Date d'envoi"]
-    $formatted = array_map(function($msg) {
-        return [
-            'fields' => [
-                'Contenu' => $msg['contenu'],
-                'Auteur' => [$msg['user_id']], // Tableau car Airtable renvoyait un tableau
-                "Date d'envoi" => $msg['date_envoi']
-            ]
-        ];
-    }, $messages);
-
-    sendJson($formatted);
+    echo json_encode($messages);
 
 } catch (Exception $e) {
-    sendJson(['error' => $e->getMessage()], 500);
+    http_response_code(500);
+    echo json_encode(['error' => $e->getMessage()]);
 }
 ?>

@@ -1,65 +1,70 @@
 <?php
-// Fichier: /api/get_camp_details.php
+// Fichier: api/get_camp_details.php
+
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+error_reporting(E_ALL);
+
+header('Content-Type: application/json');
 require_once 'config.php';
 
 $id = $_GET['id'] ?? 0;
 
-try {
-    // AJOUT : on sélectionne le "token"
-    $sql = "SELECT c.*, o.nom as organisateur_nom, o.email as organisateur_email, o.tel as organisateur_tel 
-            FROM camps c 
-            LEFT JOIN organisateurs o ON c.organisateur_id = o.id 
-            WHERE c.id = ?";
-            
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute([$id]);
-    $camp = $stmt->fetch();
+if (!$id) {
+    http_response_code(400);
+    echo json_encode(['error' => 'ID manquant']);
+    exit;
+}
 
-    if (!$camp) {
-        sendJson(['error' => 'Camp introuvable'], 404);
+try {
+    // 1. GESTION VUES
+    if (session_status() === PHP_SESSION_NONE) session_start();
+    $sessionKey = 'viewed_camp_' . $id;
+    if (!isset($_SESSION[$sessionKey])) {
+        $pdo->prepare("UPDATE camps SET vues = vues + 1 WHERE id = ?")->execute([$id]);
+        $_SESSION[$sessionKey] = true;
     }
 
-    // Calcul des places restantes (inchangé)
-    $stmtQuota = $pdo->prepare("SELECT COUNT(*) FROM inscriptions WHERE camp_id = ?");
-    $stmtQuota->execute([$id]);
-    $inscrits = $stmtQuota->fetchColumn();
-    $places_restantes = $camp['quota_global'] - $inscrits;
+    // 2. REQUÊTE CORRIGÉE (o.web au lieu de o.site_web)
+    $sql = "
+        SELECT 
+            c.*, 
+            o.nom as orga_nom, 
+            o.email as orga_email,
+            o.web as orga_website,  /* <-- C'est ici que c'était bloqué */
+            o.user_id as organisateur_user_id,
+            (SELECT COUNT(*) FROM favoris WHERE camp_id = c.id) as total_likes,
+            (SELECT COUNT(*) FROM inscriptions WHERE camp_id = c.id) as nb_inscrits_reel
+        FROM camps c
+        LEFT JOIN organisateurs o ON c.organisateur_id = o.id
+        WHERE c.id = ?
+    ";
 
-    // Comptage des vues (inchangé)
-    $pdo->prepare("UPDATE camps SET vues = vues + 1 WHERE id = ?")->execute([$id]);
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([$id]);
+    $camp = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    // Likes (inchangé)
-    $stmtLikes = $pdo->prepare("SELECT COUNT(*) FROM favoris WHERE camp_id = ?");
-    $stmtLikes->execute([$id]);
-    $likes = $stmtLikes->fetchColumn();
+    if ($camp) {
+        // CALCULS
+        $inscrits = intval($camp['nb_inscrits_reel']);
+        $quota = intval($camp['quota_global']);
+        if ($quota <= 0) $quota = 1;
 
-    $response = [
-        'id' => $camp['id'],
-        'token' => $camp['token'], // IMPORTANT : On renvoie le token
-        'nom' => $camp['nom'],
-        'description' => nl2br(htmlspecialchars($camp['description'])),
-        'ville' => $camp['ville'],
-        'adresse' => $camp['adresse'],
-        'prix' => $camp['prix'],
-        'image_url' => $camp['image_url'],
-        'date_debut' => $camp['date_debut'],
-        'date_fin' => $camp['date_fin'],
-        'age_min' => $camp['age_min'],
-        'age_max' => $camp['age_max'],
-        'places_restantes' => max(0, $places_restantes),
-        'inscription_en_ligne' => $camp['inscription_en_ligne'],
-        'inscription_hors_ligne' => $camp['inscription_hors_ligne'],
-        'lien_externe' => $camp['lien_externe'],
-        'adresse_retour' => nl2br(htmlspecialchars($camp['adresse_retour_dossier'] ?? '')),
-        'vues' => $camp['vues'],
-        'likes' => $likes,
-        'organisateur_id' => $camp['organisateur_id'],
-        'prive' => $camp['prive']
-    ];
+        $pourcentage = round(($inscrits / $quota) * 100);
+        $camp['percent_filled'] = min(100, $pourcentage);
+        $camp['places_restantes'] = max(0, $quota - $inscrits);
+        
+        $camp['date_debut_fmt'] = date('d/m/Y', strtotime($camp['date_debut']));
+        $camp['date_fin_fmt'] = date('d/m/Y', strtotime($camp['date_fin']));
 
-    sendJson($response);
+        echo json_encode($camp);
+    } else {
+        http_response_code(404);
+        echo json_encode(['error' => 'Camp introuvable']);
+    }
 
 } catch (Exception $e) {
-    sendJson(['error' => $e->getMessage()], 500);
+    http_response_code(500);
+    echo json_encode(['error' => 'Erreur : ' . $e->getMessage()]);
 }
 ?>
