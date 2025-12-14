@@ -1,12 +1,19 @@
 <?php
 // Fichier: /api/config.php
-session_start(); // On démarre la session ici pour tous les fichiers qui incluent config
+
+// Correction: Démarrer la session uniquement si aucune n'est active pour éviter le Notice PHP
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+} 
+
+// AJOUT CRITIQUE: Définir l'URL de base pour les redirections Stripe
+define('BASE_URL', 'https://mediumorchid-seahorse-635969.hostingersite.com/'); // Assurez-vous que c'est votre URL de base (inclure le / final)
 
 // Configuration de la base de données (XAMPP par défaut)
 define('DB_HOST', 'localhost');
-define('DB_NAME', 'colomap');
-define('DB_USER', 'root');
-define('DB_PASS', '');
+define('DB_NAME', 'u632349801_php_ecom');
+define('DB_USER', 'u632349801_php_ecom');
+define('DB_PASS', 'u632349801_php_ecomA@');
 
 try {
     $pdo = new PDO("mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4", DB_USER, DB_PASS);

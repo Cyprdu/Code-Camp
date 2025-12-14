@@ -17,16 +17,22 @@ if (!isset($_SESSION['user']['id']) || (!isset($_SESSION['user']['is_directeur']
 
 $pageTitle = "Créer un séjour - ColoMap";
 
-// 3. Chargement des organisateurs pour la liste déroulante
+// 3. Chargement des données
 try {
+    // Organisateurs
     $stmt = $pdo->prepare("SELECT * FROM organisateurs WHERE user_id = ? ORDER BY nom ASC");
     $stmt->execute([$_SESSION['user']['id']]);
     $organisateurs = $stmt->fetchAll();
+
+    // Moyens de paiement
+    $stmtPaiement = $pdo->query("SELECT * FROM moyens_paiement WHERE actif = 1 ORDER BY nom ASC");
+    $moyensPaiement = $stmtPaiement->fetchAll();
+
 } catch (Exception $e) {
-    $error = "Erreur lors du chargement des organisateurs.";
+    $error = "Erreur lors du chargement des données.";
 }
 
-// 4. Styles CSS réutilisables pour le formulaire
+// 4. Styles CSS réutilisables
 $inputClass = "w-full border-2 border-gray-300 bg-gray-50 rounded p-2 focus:outline-none focus:border-blue-500 focus:bg-white transition-colors duration-200 shadow-sm";
 $labelClass = "block text-gray-800 font-bold mb-2 text-sm uppercase tracking-wide";
 
@@ -48,7 +54,30 @@ include 'partials/header.php';
             <div class="border-b border-gray-200 pb-6">
                 <h2 class="text-xl font-bold mb-6 text-blue-700 flex items-center">
                     <span class="bg-blue-100 text-blue-700 px-3 py-1 rounded mr-3 text-sm">1</span> 
-                    Informations générales
+                    Organisation & Responsabilité
+                </h2>
+                
+                <div class="mb-6">
+                    <label class="<?= $labelClass ?>">Organisme Responsable *</label>
+                    <p class="text-xs text-gray-500 mb-2">Sélectionnez l'organisme qui porte juridiquement et financièrement ce séjour.</p>
+                    <div class="flex gap-2">
+                        <select id="organisateur-select" name="organisateur_id" required class="<?= $inputClass ?>">
+                            <option value="">-- Choisir un organisme --</option>
+                            <?php foreach($organisateurs as $orga): ?>
+                                <option value="<?= htmlspecialchars($orga['id']) ?>"><?= htmlspecialchars($orga['nom']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button type="button" onclick="openModal('newOrganismeModal')" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 rounded shadow transition">
+                            +
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="border-b border-gray-200 pb-6">
+                <h2 class="text-xl font-bold mb-6 text-blue-700 flex items-center">
+                    <span class="bg-blue-100 text-blue-700 px-3 py-1 rounded mr-3 text-sm">2</span> 
+                    Informations du séjour
                 </h2>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div class="col-span-2">
@@ -76,7 +105,7 @@ include 'partials/header.php';
 
             <div class="border-b border-gray-200 pb-6">
                 <h2 class="text-xl font-bold mb-6 text-blue-700 flex items-center">
-                    <span class="bg-blue-100 text-blue-700 px-3 py-1 rounded mr-3 text-sm">2</span> 
+                    <span class="bg-blue-100 text-blue-700 px-3 py-1 rounded mr-3 text-sm">3</span> 
                     Lieu et Dates
                 </h2>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -110,7 +139,30 @@ include 'partials/header.php';
 
             <div class="border-b border-gray-200 pb-6">
                 <h2 class="text-xl font-bold mb-6 text-blue-700 flex items-center">
-                    <span class="bg-blue-100 text-blue-700 px-3 py-1 rounded mr-3 text-sm">3</span> 
+                    <span class="bg-blue-100 text-blue-700 px-3 py-1 rounded mr-3 text-sm">4</span> 
+                    Moyens de paiement acceptés
+                </h2>
+
+                <div class="bg-orange-50 border-l-4 border-orange-500 text-orange-800 p-4 mb-6 rounded text-sm">
+                    <p class="font-bold">⚠️ Information importante</p>
+                    <p>Cochez les moyens de paiement que vous acceptez pour ce séjour. </p>
+                    <p class="mt-1">Notez que <strong>seuls les paiements par Carte Bancaire</strong> (via Stripe) sont gérés automatiquement par ColoMap (si l'inscription en ligne est activée).</p>
+                    <p>Les autres moyens de paiement (Chèques, Espèces, ANCV...) devront être gérés manuellement par l'organisme.</p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <?php foreach($moyensPaiement as $mp): ?>
+                        <label class="flex items-center space-x-3 bg-gray-50 p-3 rounded border border-gray-200 cursor-pointer hover:bg-gray-100">
+                            <input type="checkbox" name="paiements[]" value="<?= $mp['id'] ?>" class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500">
+                            <span class="text-gray-800 font-medium"><?= htmlspecialchars($mp['nom']) ?></span>
+                        </label>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+
+            <div class="border-b border-gray-200 pb-6">
+                <h2 class="text-xl font-bold mb-6 text-blue-700 flex items-center">
+                    <span class="bg-blue-100 text-blue-700 px-3 py-1 rounded mr-3 text-sm">5</span> 
                     Visibilité et Inscription
                 </h2>
                 
@@ -133,7 +185,7 @@ include 'partials/header.php';
                         <div>
                             <span class="text-lg font-bold text-blue-900">Activer les inscriptions et la gestion via ColoMap ?</span>
                             <p class="text-sm text-blue-700 mt-1">
-                                Gestion automatique des dossiers, paiements, quotas et recrutement des animateurs.
+                                Gestion automatique des dossiers, paiements par carte, quotas et recrutement des animateurs.
                             </p>
                             
                             <div id="commissionWarning" class="hidden mt-4 p-4 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-900 rounded">
@@ -172,23 +224,8 @@ include 'partials/header.php';
             <div id="blockInternal" class="hidden space-y-8">
                 
                 <div class="border-l-4 border-blue-500 pl-6 py-2">
-                    <h3 class="text-lg font-bold mb-4 text-gray-800">Organisation & Tarifs</h3>
+                    <h3 class="text-lg font-bold mb-4 text-gray-800">Tarification & Options</h3>
                     
-                    <div class="mb-6">
-                        <label class="<?= $labelClass ?>">Organisateur *</label>
-                        <div class="flex gap-2">
-                            <select id="organisateur-select" name="organisateur_id" class="<?= $inputClass ?>">
-                                <option value="">-- Choisir un organisme --</option>
-                                <?php foreach($organisateurs as $orga): ?>
-                                    <option value="<?= htmlspecialchars($orga['id']) ?>"><?= htmlspecialchars($orga['nom']) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                            <button type="button" onclick="openModal('newOrganismeModal')" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 rounded shadow transition">
-                                +
-                            </button>
-                        </div>
-                    </div>
-
                     <div class="mb-6 bg-gray-100 p-4 rounded border border-gray-300">
                         <label class="<?= $labelClass ?>">Tarifs applicables</label>
                         <div class="flex flex-col md:flex-row gap-3 mb-3">
@@ -292,9 +329,11 @@ include 'partials/header.php';
                     </div>
                 </div>
 
-            </div> <div class="pt-6 border-t border-gray-200">
+            </div> 
+
+            <div class="pt-6 border-t border-gray-200">
                 <h2 class="text-xl font-bold mb-4 text-blue-700 flex items-center">
-                    <span class="bg-blue-100 text-blue-700 px-3 py-1 rounded mr-3 text-sm">5</span> 
+                    <span class="bg-blue-100 text-blue-700 px-3 py-1 rounded mr-3 text-sm">6</span> 
                     Image de couverture
                 </h2>
                 <div class="bg-yellow-50 border border-yellow-200 p-4 rounded text-sm text-yellow-800 mb-3 flex items-start">

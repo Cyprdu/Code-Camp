@@ -59,6 +59,12 @@ $age_max = $_POST['age_max'];
 $date_debut = $_POST['date_debut'];
 $date_fin = $_POST['date_fin'];
 
+// L'organisateur est maintenant obligatoire dans tous les cas
+$organisateur_id = $_POST['organisateur_id'] ?? null;
+if (!$organisateur_id) {
+    die("Erreur : L'organisme est obligatoire.");
+}
+
 // Point 1 : Gestion Camp Privé
 $prive = isset($_POST['prive']) ? 1 : 0;
 // Point 2 : Génération Token
@@ -66,17 +72,15 @@ $token = generateToken(11); // ex: Xy78kLmP0qZ
 
 $inscription_en_ligne = isset($_POST['inscription_en_ligne']) ? 1 : 0;
 $prix_affiche = 0;
-$organisateur_id = null;
 $tarifs = [];
 
-// Point 3 : Correction Prix Minimum
+// Correction Prix et Tarifs
 if ($inscription_en_ligne) {
-    $organisateur_id = $_POST['organisateur_id'];
     $tarifsJson = $_POST['tarifs'] ?? '[]';
     $tarifs = json_decode($tarifsJson, true);
     
     if (!empty($tarifs) && is_array($tarifs)) {
-        // On extrait les prix et on prend le plus petit
+        // On extrait les prix et on prend le plus petit pour l'affichage
         $prixList = array_column($tarifs, 'prix'); 
         if (!empty($prixList)) {
             $prix_affiche = min($prixList);
@@ -151,6 +155,7 @@ try {
     
     $campId = $pdo->lastInsertId();
 
+    // Insertion des Tarifs (si inscription en ligne)
     if ($inscription_en_ligne && !empty($tarifs)) {
         $sqlTarif = "INSERT INTO camps_tarifs (camp_id, tarif_id) VALUES (?, ?)";
         $stmtTarif = $pdo->prepare($sqlTarif);
@@ -159,7 +164,16 @@ try {
         }
     }
 
-    // Redirection vers l'URL sécurisée (Point 2)
+    // NOUVEAU : Insertion des moyens de paiement acceptés
+    if (isset($_POST['paiements']) && is_array($_POST['paiements'])) {
+        $sqlPaiement = "INSERT INTO camps_paiements (camp_id, paiement_id) VALUES (?, ?)";
+        $stmtPaiement = $pdo->prepare($sqlPaiement);
+        foreach ($_POST['paiements'] as $paiementId) {
+            $stmtPaiement->execute([$campId, $paiementId]);
+        }
+    }
+
+    // Redirection vers l'URL sécurisée
     header("Location: ../camp_details.php?t=" . $token);
     exit;
 
