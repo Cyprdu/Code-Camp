@@ -90,14 +90,29 @@ document.getElementById('register-form').addEventListener('submit', async functi
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(formData)
         });
+        
         const result = await response.json();
-        if (response.ok) {
+        
+        if (result.success) {
+            // Affichage du succès
             messageArea.innerHTML = `<p class="text-green-500 font-bold">${result.success}</p>`;
-            setTimeout(() => { window.location.href = 'login.php'; }, 2000);
+            
+            // Redirection vers validation.php avec le token URL reçu
+            setTimeout(() => { 
+                if(result.redirect_token) {
+                    window.location.href = 'validation.php?t=' + result.redirect_token; 
+                } else {
+                    // Fallback au cas où (ne devrait pas arriver si l'API est à jour)
+                    window.location.href = 'login.php';
+                }
+            }, 1500);
+            
         } else {
+            // Affichage de l'erreur
             messageArea.innerHTML = `<p class="text-red-500 font-bold">${result.error}</p>`;
         }
     } catch (error) {
+        console.error(error);
         messageArea.innerHTML = `<p class="text-red-500 font-bold">Une erreur est survenue.</p>`;
     }
 });

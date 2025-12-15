@@ -1,53 +1,60 @@
 <?php
-// Fichier: /api/user_login.php
+// api/user_login.php
 require_once 'config.php';
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    sendJson(['error' => 'Méthode non autorisée.'], 405);
+header('Content-Type: application/json');
+
+// Récupération du JSON
+$input = json_decode(file_get_contents('php://input'), true);
+
+if (!$input) {
+    echo json_encode(['error' => 'Données invalides.']);
+    exit;
 }
 
-$input = json_decode(file_get_contents('php://input'), true);
-$mail = trim($input['mail'] ?? '');
+$email = trim($input['mail'] ?? ''); // Correspond à 'mail' du JS
 $password = $input['password'] ?? '';
 
-if (empty($mail) || empty($password)) {
-    sendJson(['error' => 'Email et mot de passe requis.'], 400);
+if (empty($email) || empty($password)) {
+    echo json_encode(['error' => 'Veuillez remplir tous les champs.']);
+    exit;
 }
 
 try {
-    // Requête SQL préparée (sécurisée contre les injections)
-    $stmt = $pdo->prepare("SELECT * FROM users WHERE email = :email");
-    $stmt->execute(['email' => $mail]);
-    $user = $stmt->fetch();
+    // 1. Récupérer l'user
+    $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ?");
+    $stmt->execute([$email]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$user || !password_verify($password, $user['password'])) {
-        sendJson(['error' => 'Email ou mot de passe incorrect.'], 401);
+    // 2. Vérification
+    if ($user && password_verify($password, $user['password'])) {
+        
+        // CHECK VERIFICATION EMAIL
+        // Si la colonne n'existe pas encore (cas rare), on considère validé par défaut
+        $isVerified = isset($user['is_verified']) ? $user['is_verified'] : 1;
+
+        if ($isVerified == 0) {
+            // IMPORTANT : On renvoie une erreur spécifique pour que le JS puisse réagir si besoin
+            echo json_encode([
+                'error' => 'Compte non vérifié. Veuillez vérifier vos e-mails.',
+                'need_validation' => true,
+                'email' => $email
+            ]);
+            exit;
+        }
+
+        // Connexion OK
+        if (session_status() === PHP_SESSION_NONE) session_start();
+        unset($user['password']); // Sécurité
+        $_SESSION['user'] = $user;
+
+        echo json_encode(['success' => true]);
+    } else {
+        echo json_encode(['error' => 'Email ou mot de passe incorrect.']);
     }
 
-    // Récupération des favoris
-    $stmtFav = $pdo->prepare("SELECT camp_id FROM favoris WHERE user_id = ?");
-    $stmtFav->execute([$user['id']]);
-    $favorites = $stmtFav->fetchAll(PDO::FETCH_COLUMN);
-
-    // Mise en session (Mapping des noms de colonnes SQL vers les clés de session)
-    $_SESSION['user'] = [
-        'id' => $user['id'],
-        'nom' => $user['nom'],
-        'prenom' => $user['prenom'],
-        'mail' => $user['email'],
-        'tel' => $user['tel'],
-        'photo_url' => $user['photo_url'],
-        'is_directeur' => (bool)$user['is_directeur'],
-        'is_admin' => (bool)$user['is_admin'],
-        'is_animateur' => (bool)$user['is_animateur'],
-        'demande_en_cours' => (bool)$user['demande_en_cours'],
-        'is_refused' => (bool)$user['is_refused'],
-        'favorites' => $favorites
-    ];
-
-    sendJson(['success' => true]);
-
-} catch (Exception $e) {
-    sendJson(['error' => 'Erreur serveur: ' . $e->getMessage()], 500);
+} catch (PDOException $e) {
+    error_log("Erreur Login : " . $e->getMessage());
+    echo json_encode(['error' => 'Erreur de connexion serveur.']);
 }
 ?>
